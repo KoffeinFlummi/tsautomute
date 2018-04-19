@@ -58,7 +58,7 @@ def main(args):
             old_volume = get_volume(p, inputname)
 
             while True:
-                line = t.read_until(b"\n\r").decode("ascii")
+                line = t.read_until(b"\n\r").decode("utf8")
                 msg = line.strip().split(" ")
 
                 if msg[0] != "notifytalkstatuschange":
