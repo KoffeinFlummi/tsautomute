@@ -30,7 +30,7 @@ def get_volume(p, name):
     if len(sis) == 0:
         return 1.0
 
-    return sis[0].volume.value_flat
+    return sorted(sis, key=lambda x: x.index)[-1].volume.value_flat
 
 
 def set_volume(p, name, volume):
