@@ -25,7 +25,8 @@ VERSION = "1.0"
 
 
 def get_volume(p, name):
-    sis = [si for si in p.sink_input_list() if name in si.name.lower()]
+    sis = [si for si in p.sink_input_list() if name in si.name]
+    print(sis)
     if len(sis) == 0:
         return 1.0
 
@@ -33,11 +34,51 @@ def get_volume(p, name):
 
 
 def set_volume(p, name, volume):
-    sis = [si for si in p.sink_input_list() if name in si.name.lower()]
+    sis = [si for si in p.sink_input_list() if name in si.name]
+    print(sis)
     if len(sis) == 0:
         return
 
-    p.volume_set_all_chans(sis[0], volume)
+    for s in sis:
+        p.volume_set_all_chans(s, volume)
+
+
+def listen(key, inputname, volume, pulse):
+    with telnetlib.Telnet("localhost", 25639) as t:
+        t.read_until(b"selected schandlerid=")
+        handlerid = int(t.read_until(b"\n\r")[:-2])
+        t.write("auth apikey={}\n".format(key).encode("ascii"))
+        t.read_until(b"error id=0 msg=ok\n\r")
+        t.write(b"clientnotifyregister schandlerid=0 event=any\n")
+        t.read_until(b"error id=0 msg=ok\n\r")
+
+        clids = []
+        old_volume = get_volume(pulse, inputname)
+
+        while True:
+            line = t.read_until(b"\n\r").decode("utf8")
+            msg = line.strip().split(" ")
+
+            if msg[0] != "notifytalkstatuschange":
+                continue
+
+            values = {x.split("=")[0]: x.split("=")[1] for x in msg[1:]}
+
+            speaking = values["status"] == "1"
+            clid = int(values["clid"])
+
+            if clid not in clids and speaking:
+                clids.append(clid)
+                if len(clids) == 1:
+                    old_volume = get_volume(pulse, inputname)
+                    set_volume(pulse, inputname, volume)
+            elif clid in clids and not speaking:
+                clids.remove(clid)
+                if len(clids) == 0:
+                    set_volume(pulse, inputname, old_volume)
+
+            print(clids)
+            t.write(b"\n")
 
 
 def main(args):
@@ -46,40 +87,11 @@ def main(args):
     volume = float(args["<volume>"])
 
     with pulsectl.Pulse("localhost") as p:
-        with telnetlib.Telnet("localhost", 25639) as t:
-            t.read_until(b"selected schandlerid=")
-            handlerid = int(t.read_until(b"\n\r")[:-2])
-            t.write("auth apikey={}\n".format(key).encode("ascii"))
-            t.read_until(b"error id=0 msg=ok\n\r")
-            t.write(b"clientnotifyregister schandlerid=0 event=any\n")
-            t.read_until(b"error id=0 msg=ok\n\r")
-
-            clids = []
-            old_volume = get_volume(p, inputname)
-
-            while True:
-                line = t.read_until(b"\n\r").decode("utf8")
-                msg = line.strip().split(" ")
-
-                if msg[0] != "notifytalkstatuschange":
-                    continue
-
-                values = {x.split("=")[0]: x.split("=")[1] for x in msg[1:]}
-
-                speaking = values["status"] == "1"
-                clid = int(values["clid"])
-
-                if clid not in clids and speaking:
-                    clids.append(clid)
-                    if len(clids) == 1:
-                        old_volume = get_volume(p, inputname)
-                        set_volume(p, inputname, volume)
-                elif clid in clids and not speaking:
-                    clids.remove(clid)
-                    if len(clids) == 0:
-                        set_volume(p, inputname, old_volume)
-
-                print(clids)
+        while True:
+            try:
+                listen(key, inputname, volume, p)
+            except EOFError:
+                pass
 
 
 if __name__ == "__main__":
